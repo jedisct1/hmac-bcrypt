@@ -32,10 +32,10 @@ pub const HmacBcrypt = struct {
             if (s.len == settings_str_length) {
                 try BcryptCodec.Decoder.decode(salt[0..], s[params_str_length + 1 ..]);
             } else {
-                crypto.random.bytes(salt[0..]);
+                randomSalt(&salt);
             }
         } else {
-            crypto.random.bytes(salt[0..]);
+            randomSalt(&salt);
         }
 
         var pre_hash: [HmacSha512.mac_length]u8 = undefined;
@@ -60,7 +60,13 @@ pub const HmacBcrypt = struct {
     pub fn verify(password: []const u8, expected: [hash_length]u8, pepper: ?[]const u8) !void {
         const settings_str = expected[0..settings_str_length];
         const wanted_s = try hash(password, settings_str, pepper);
-        if (!crypto.utils.timingSafeEql([hash_length]u8, wanted_s, expected)) return error.PasswordVerificationFailed;
+        if (!crypto.timing_safe.eql([hash_length]u8, wanted_s, expected)) return error.PasswordVerificationFailed;
+    }
+
+    fn randomSalt(salt: *[salt_length]u8) void {
+        var threaded: std.Io.Threaded = .init_single_threaded;
+        defer threaded.deinit();
+        threaded.io().randomSecure(salt) catch @panic("unable to obtain random bytes");
     }
 
     const bcrypt_alphabet = "./ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789".*;
@@ -76,7 +82,7 @@ pub const HmacBcrypt = struct {
         salt: [salt_length]u8,
         rounds_log: u6,
     ) [bcrypt.hash_length]u8 {
-        const dk = bcrypt.bcrypt(password, salt, .{ .rounds_log = rounds_log });
+        const dk = bcrypt.bcrypt(password, &salt, .{ .rounds_log = rounds_log, .silently_truncate_password = true });
 
         var salt_str: [salt_str_length]u8 = undefined;
         _ = BcryptCodec.Encoder.encode(salt_str[0..], salt[0..]);
